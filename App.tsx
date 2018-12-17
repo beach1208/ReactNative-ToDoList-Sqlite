@@ -9,9 +9,10 @@ import {
   FlatList,
   TouchableOpacity,
 } from 'react-native'
-import { SecureStore, SQLite } from 'expo'
+import { SecureStore, SQLite,FileSystem } from 'expo'
 
 const db = SQLite.openDatabase('todo.db')
+
 interface IState {
   todoText: string
   items: string[]
@@ -27,12 +28,25 @@ export default class App extends React.Component<{}, IState> {
     console.log('ComponentDidmount')
     try {
       // get items from SecureStore
-      const list = await SecureStore.getItemAsync('list')
-      if (list != null && list !== undefined) {
-        this.setState({
-          items: JSON.parse(list),
-        })
-      }
+      // const list = await SecureStore.getItemAsync('list')
+      // if (list != null && list !== undefined) {
+      //   this.setState({
+      //     items: JSON.parse(list),
+      //   })
+      // }
+
+      db.transaction((txt: any) => {
+        txt.executeSql('CREATE TABLE IF NOT EXISTS items (todo_item text);')
+        console.log('table created');
+        txt.executeSql(
+          'SELECT todo_item FROM items', [],
+          ( _, { rows: { _array } }) => this.setState({ 
+            items: [...this.state.items, ..._array.map(
+              (todoObj) => todoObj.todo_text
+            )] 
+          })
+        )
+      })
     } catch (error) {
       // error handle
     }
@@ -41,11 +55,18 @@ export default class App extends React.Component<{}, IState> {
   _insert = async () => {
     try {
       // insert item and update state
+      const {items,todoText} = this.state;
       await this.setState({
         todoText: '',
-        items: [...this.state.items, this.state.todoText],
+        items: [...items,todoText]
       })
-      await SecureStore.setItemAsync('list', JSON.stringify(this.state.items))
+      await db.transaction((txt: any) => {
+        console.log('_insert is called!!!!')
+        txt.executeSql(
+          'INSERT INTO items ((todo_item) VALUES (?)',
+          [todoText]
+        )
+      })
     } catch (error) {
       // error handling
     }
@@ -53,15 +74,21 @@ export default class App extends React.Component<{}, IState> {
 
   _delete = async (todoText: string) => {
     // find index to remove
-    const index = (this.state.items as string[]).indexOf(todoText)
-    // remove index item
-    this.state.items.splice(index, 1)
-    // update items state
+    const {items} = this.state;
+    const index = (items as string[]).indexOf(todoText)
+    items.splice(index, 1)
+    
     try {
       await this.setState({
-        items: [...this.state.items],
+        items: [...items],
       })
-      await SecureStore.setItemAsync('list', JSON.stringify(this.state.items))
+      await db.transaction((txt: any) => {
+         console.log("todoText: " + todoText)
+        txt.executeSql(
+          'DELETE DROM items WHERE todo_item = ?',
+          [todoText]
+        )
+      })
     } catch (error) {
       // error handling
     }
